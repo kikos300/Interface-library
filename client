@@ -1,0 +1,257 @@
+local x, y = guiGetScreenSize()
+local elements = {}
+showCursor(true)
+
+function dxDrawWindow(x, y, w, h, title)
+	local info = {}
+	info.type = "window"
+	info.x = x
+	info.y = y
+	info.w = w
+	info.h = h
+	info.px = x
+	info.py = y
+	info.title = title or ""
+	info.movable = true
+	info.sizeable = true
+	info.visible = true
+	info.children = {}
+	table.insert(elements, info)
+	return info
+end
+
+function dxDrawGridList(x, y, w, h, parent)
+	local info = {}
+	info.type = "gridlist"
+	info.x = x
+	info.y = y
+	info.w = w
+	info.h = h
+	if parent and parent.children then
+		info.parent = parent
+		info.visible = parent.visible
+		info.x = parent.x + info.x
+		info.y = (parent.y + 20)+ info.y
+		table.insert(parent.children, info)
+	else
+		info.visible = true
+		info.parent = nil
+	end
+	info.columns = {}
+	info.rows = {}
+	info.selected = 0
+	info.scroll = 0
+	info.scrollHover = false
+	info.scrollSelected = false
+	info.drawScroll = false
+	info.scrollAlpha = 200
+	info.target = dxCreateRenderTarget(w, h - 20, true)
+	table.insert(elements, info)
+	return info
+end
+local function renderElems()
+	for i, data in pairs(elements) do
+		if data.parent then
+			data.visible = data.parent.visible
+		end
+		if not data.visible then break end
+		if data.type == "window" then
+			dxDrawRectangle(data.x, data.y, data.w, 20, tocolor(0, 255, 255, 255))
+			dxDrawRectangle(data.x, data.y, data.w, data.h, tocolor(0, 0, 0, 100))
+			dxDrawText(data.title, data.x, data.y, data.w + data.x, 20 + data.y, tocolor(255, 255, 255, 255), 1, "default-bold", "center", "center")
+		elseif data.type == "gridlist" then
+			dxDrawRectangle(data.x, data.y, data.w, data.h, tocolor(0, 0, 0, 255))
+			for columnI, columnD in pairs(data.columns) do
+				dxDrawText(columnD.name, columnD.x + data.x, data.y, (columnD.width*data.w), data.h, tocolor(255, 255, 255, 255), 1, "default-bold")
+			end
+			local rows = data.h/20
+			if not getKeyState("mouse1") then
+				data.scrollSelected = false 
+			end
+			if #data.rows > rows then
+				data.drawScroll = true
+			end
+			if data.drawScroll then
+				local final = (#data.rows+1 - rows) * 20
+				if data.scroll > final then
+					data.scroll = final
+				end
+				local thumbHeight = data.h * (data.h / ((#data.rows)*20)) 
+				data.scrollPosition = (data.scroll)/(((#data.rows * 20) - data.h) / (data.h - thumbHeight))
+				local scrollPosition = (data.y) + data.scrollPosition
+				local endS = (data.y+data.h) - thumbHeight
+				if scrollPosition > endS then
+					scrollPosition = endS
+				end
+				if isCursorHover(data.x + data.w, data.y + data.scrollPosition, 15, thumbHeight) then
+					if getKeyState("mouse1") then
+						data.scrollSelected = true
+						data.scrollHovered = true
+					else
+						data.scrollSelected = false
+					end
+					data.scrollHovered = true
+				else
+					data.scrollHovered = false
+				end
+				dxDrawRectangle(data.x + data.w, data.y, 15, data.h, tocolor(0, 0, 0, 200))
+				dxDrawRectangle(data.x + data.w, scrollPosition, 15, thumbHeight, tocolor(100, 100, 100, data.scrollAlpha))
+			end
+			if data.scrollHovered then
+				data.scrollAlpha = 255
+			else
+				data.scrollAlpha = 200
+			end
+			dxSetRenderTarget(data.target, true)
+			for i,v in pairs(data.rows) do
+				local rowPos = (i * 20)
+				if data.drawScroll then
+					rowPos = rowPos - (data.scroll + 20)
+				else
+					rowPos = rowPos - 20
+				end
+				if isCursorHover(data.x, data.y + (rowPos + 20), data.w, 20)  and (rowPos + 20) <= 380 then
+					if getKeyState("mouse1") then
+						if not data.scrollSelected then 
+							data.selected = i
+						end
+					end
+					if data.selected == i then
+						v.alpha = 255
+					else
+						v.alpha = 200
+					end
+				else
+					if data.selected ~= i then
+						v.alpha = 0
+					end
+				end
+				dxDrawRectangle(0, rowPos, data.w, 20, tocolor(100, 100, 100, v.alpha))
+				for s,row in pairs(v) do
+					if s ~= "alpha" then
+						if data.columns[row.column] then
+							dxDrawText(row.name, data.columns[row.column].x, rowPos, data.w, 20, tocolor(255, 255, 255, 255), 1, "default-bold")
+						end
+					end
+				end
+			end
+			dxSetRenderTarget()
+			dxDrawImage(data.x, data.y + 20, data.w, data.h - 20, data.target)
+		end
+	end
+end
+addEventHandler("onClientRender", getRootElement(), renderElems)
+
+function calculateNewPosition(elm)
+	if type(elm) == "table" then
+		if elm.parent then
+		end
+	end
+end
+
+function addColumn(grid, name, width)
+	local startX = 5
+	if #grid.columns > 0 then
+		for i=1,#grid.columns do
+			startX = startX + (grid.columns[i].width * grid.w)
+		end
+	end
+	table.insert(grid.columns, {name = name, width = width, x = startX})
+	return #grid.columns
+end
+
+function addRow(grid)
+	local rowID = #grid.rows + 1
+	grid.rows[rowID] = {alpha = 0}
+	return rowID
+end
+
+function addRowText(grid, row, name, c)
+	table.insert(grid.rows[row], {name = name, column = c})
+end
+
+function cursorMove(button, state, ax, ay)
+	for _,data in pairs(elements) do
+		if data.type == "window" then
+			if isCursorHover(data.x, data.y, data.w, 20) then
+				if getKeyState("mouse1") then
+					data.selected = true
+				else
+				end
+			end
+			if data.selected then
+				outputChatBox(":(")
+				local absoluteX, absoluteY = getAbsoluteCursorPosition()
+				local x  = (data.px + ax) + data.w
+				data.x = x, y
+				for _,v in pairs(data.children) do
+				--	v.x = data.x + v.x
+				end
+			end
+		elseif data.type == "gridlist" then
+			if data.scrollSelected then
+				local sx,sy = getAbsoluteCursorPosition()
+				local thumbHeight = data.h * (data.h / ((#data.rows - 1)*20)) 
+				local thumbY = sy-(data.y)-(thumbHeight/2)
+				data.scroll = thumbY*(((#data.rows * 20) - data.h) / (data.h - thumbHeight))
+				if (data.scroll < 20 and data.scroll > 0) or data.scroll < 0 then
+					data.scroll = 0
+				end
+			end
+		end
+	end
+end
+addEventHandler("onClientCursorMove", getRootElement(), cursorMove)
+
+function getAbsoluteCursorPosition()
+	local cursorX, cursorY = getCursorPosition()
+	return cursorX*x, cursorY*y
+end
+--addEventHandler("onClientRender", root, updateRenderTarget) 
+function scrollGrid(button)
+	for _,data in pairs(elements) do
+		if data.type == "gridlist" then
+			if isCursorHover(data.x, data.y, data.w, data.h) then
+				if button == "mouse_wheel_down" then
+					local rows = data.h/20
+					local final = (#data.rows - rows) * 20
+					if data.scroll <= final then
+						data.scroll = data.scroll + 20
+					end
+				else
+					if data.scroll > 0 then
+						data.scroll = data.scroll - 20
+					else
+						data.scroll = 0 
+					end
+				end
+			end
+		end
+	end
+end
+bindKey("mouse_wheel_up", "down", scrollGrid)
+bindKey("mouse_wheel_down", "down", scrollGrid)
+
+function isCursorHover ( x, y, width, height )
+	if ( not isCursorShowing( ) ) then
+		return false
+	end
+    local sx, sy = guiGetScreenSize ( )
+    local cx, cy = getCursorPosition ( )
+    local cx, cy = ( cx * sx ), ( cy * sy )
+    if ( cx >= x and cx <= x + width ) and ( cy >= y and cy <= y + height ) then
+        return true
+    else
+        return false
+    end
+end
+local win = dxDrawWindow((x - 400) / 2, (y - 400) / 2, 400, 400, "window")
+local grid = dxDrawGridList(5, 5, 200, 300, win)
+local wep = addColumn(grid, "weapon", 0.5)
+local pricesss = addColumn(grid, "Price", 0.3)
+
+for i = 1, 30 do
+	local rosw = addRow(grid)
+	addRowText(grid, rosw, "wep "..i, wep)
+	addRowText(grid, rosw, "price "..i, pricesss)
+end
